@@ -206,7 +206,7 @@ var GitHubService;
       config
     );
     return pick(await res.json());
-  }, GitHubService2.getCommits = async (reponame, username) => (invariant(reponame, "Please provide an repository name as a string"), invariant(username, "Please provide an user name as a string"), console.log("chegou"), (await (await fetch(
+  }, GitHubService2.getCommits = async (reponame, username) => (invariant(reponame, "Please provide an repository name as a string"), invariant(username, "Please provide an user name as a string"), (await (await fetch(
     `https://api.github.com/repos/${username}/${reponame}/commits`,
     config
   )).json()).map((commit) => ({

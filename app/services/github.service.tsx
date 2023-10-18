@@ -49,7 +49,6 @@ export namespace GitHubService {
        invariant(reponame, "Please provide an repository name as a string");
        invariant(username, "Please provide an user name as a string");
     
-       console.log('chegou')
         const res = await fetch(
         `https://api.github.com/repos/${username}/${reponame}/commits`,
         config
