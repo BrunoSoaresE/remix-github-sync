@@ -1,9 +1,9 @@
 import {
-  createHotContext
-} from "/build/_shared/chunk-PI7EICAX.js";
-import {
   require_react
 } from "/build/_shared/chunk-BOXFZXVX.js";
+import {
+  createHotContext
+} from "/build/_shared/chunk-PI7EICAX.js";
 import {
   __commonJS,
   __esm,
@@ -909,6 +909,9 @@ function createRouter(init) {
   let pendingAction = Action.Pop;
   let pendingPreventScrollReset = false;
   let pendingNavigationController;
+  let pendingViewTransitionEnabled = false;
+  let appliedViewTransitions = /* @__PURE__ */ new Map();
+  let removePageHideEventListener = null;
   let isUninterruptedRevalidation = false;
   let isRevalidationRequired = false;
   let cancelledDeferredRoutes = [];
@@ -966,6 +969,12 @@ function createRouter(init) {
       }
       return startNavigation(historyAction, location);
     });
+    if (isBrowser2) {
+      restoreAppliedTransitions(routerWindow, appliedViewTransitions);
+      let _saveAppliedTransitions = () => persistAppliedTransitions(routerWindow, appliedViewTransitions);
+      routerWindow.addEventListener("pagehide", _saveAppliedTransitions);
+      removePageHideEventListener = () => routerWindow.removeEventListener("pagehide", _saveAppliedTransitions);
+    }
     if (!state.initialized) {
       startNavigation(Action.Pop, state.location);
     }
@@ -974,6 +983,9 @@ function createRouter(init) {
   function dispose() {
     if (unlistenHistory) {
       unlistenHistory();
+    }
+    if (removePageHideEventListener) {
+      removePageHideEventListener();
     }
     subscribers.clear();
     pendingNavigationController && pendingNavigationController.abort();
@@ -984,9 +996,11 @@ function createRouter(init) {
     subscribers.add(fn);
     return () => subscribers.delete(fn);
   }
-  function updateState(newState) {
+  function updateState(newState, viewTransitionOpts) {
     state = _extends({}, state, newState);
-    subscribers.forEach((subscriber) => subscriber(state));
+    subscribers.forEach((subscriber) => subscriber(state, {
+      unstable_viewTransitionOpts: viewTransitionOpts
+    }));
   }
   function completeNavigation(location, newState) {
     var _location$state, _location$state2;
@@ -1023,6 +1037,33 @@ function createRouter(init) {
     } else if (pendingAction === Action.Replace) {
       init.history.replace(location, location.state);
     }
+    let viewTransitionOpts;
+    if (pendingAction === Action.Pop) {
+      let priorPaths = appliedViewTransitions.get(state.location.pathname);
+      if (priorPaths && priorPaths.has(location.pathname)) {
+        viewTransitionOpts = {
+          currentLocation: state.location,
+          nextLocation: location
+        };
+      } else if (appliedViewTransitions.has(location.pathname)) {
+        viewTransitionOpts = {
+          currentLocation: location,
+          nextLocation: state.location
+        };
+      }
+    } else if (pendingViewTransitionEnabled) {
+      let toPaths = appliedViewTransitions.get(state.location.pathname);
+      if (toPaths) {
+        toPaths.add(location.pathname);
+      } else {
+        toPaths = /* @__PURE__ */ new Set([location.pathname]);
+        appliedViewTransitions.set(state.location.pathname, toPaths);
+      }
+      viewTransitionOpts = {
+        currentLocation: state.location,
+        nextLocation: location
+      };
+    }
     updateState(_extends({}, newState, {
       actionData,
       loaderData,
@@ -1034,9 +1075,10 @@ function createRouter(init) {
       restoreScrollPosition: getSavedScrollPosition(location, newState.matches || state.matches),
       preventScrollReset,
       blockers
-    }));
+    }), viewTransitionOpts);
     pendingAction = Action.Pop;
     pendingPreventScrollReset = false;
+    pendingViewTransitionEnabled = false;
     isUninterruptedRevalidation = false;
     isRevalidationRequired = false;
     cancelledDeferredRoutes = [];
@@ -1100,7 +1142,8 @@ function createRouter(init) {
       // render at the right error boundary after we match routes
       pendingError: error,
       preventScrollReset,
-      replace: opts && opts.replace
+      replace: opts && opts.replace,
+      enableViewTransition: opts && opts.unstable_viewTransition
     });
   }
   function revalidate() {
@@ -1128,6 +1171,7 @@ function createRouter(init) {
     isUninterruptedRevalidation = (opts && opts.startUninterruptedRevalidation) === true;
     saveScrollPosition(state.location, state.matches);
     pendingPreventScrollReset = (opts && opts.preventScrollReset) === true;
+    pendingViewTransitionEnabled = (opts && opts.enableViewTransition) === true;
     let routesToUse = inFlightDataRoutes || dataRoutes;
     let loadingNavigation = opts && opts.overrideNavigation;
     let matches = matchRoutes(routesToUse, location, basename);
@@ -1877,6 +1921,9 @@ function createRouter(init) {
     },
     get routes() {
       return dataRoutes;
+    },
+    get window() {
+      return routerWindow;
     },
     initialize,
     subscribe,
@@ -2805,7 +2852,7 @@ function findNearestBoundary(matches, routeId) {
   return eligibleMatches.reverse().find((m) => m.route.hasErrorBoundary === true) || matches[0];
 }
 function getShortCircuitMatches(routes) {
-  let route = routes.find((r) => r.index || !r.path || r.path === "/") || {
+  let route = routes.length === 1 ? routes[0] : routes.find((r) => r.index || !r.path || r.path === "/") || {
     id: "__shim-error-route__"
   };
   return {
@@ -3106,7 +3153,34 @@ function getDoneFetcher(data) {
   };
   return fetcher;
 }
-var Action, PopStateEventType, ResultType, immutableRouteKeys, paramRe, dynamicSegmentValue, indexRouteValue, emptySegmentValue, staticSegmentValue, splatPenalty, isSplat, joinPaths, normalizePathname, normalizeSearch, normalizeHash, json, AbortedDeferredError, DeferredData, defer, redirect, redirectDocument, ErrorResponseImpl, validMutationMethodsArr, validMutationMethods, validRequestMethodsArr, validRequestMethods, redirectStatusCodes, redirectPreserveMethodStatusCodes, IDLE_NAVIGATION, IDLE_FETCHER, IDLE_BLOCKER, ABSOLUTE_URL_REGEX, defaultMapRouteProperties, UNSAFE_DEFERRED_SYMBOL;
+function restoreAppliedTransitions(_window, transitions) {
+  try {
+    let sessionPositions = _window.sessionStorage.getItem(TRANSITIONS_STORAGE_KEY);
+    if (sessionPositions) {
+      let json3 = JSON.parse(sessionPositions);
+      for (let [k, v] of Object.entries(json3 || {})) {
+        if (v && Array.isArray(v)) {
+          transitions.set(k, new Set(v || []));
+        }
+      }
+    }
+  } catch (e) {
+  }
+}
+function persistAppliedTransitions(_window, transitions) {
+  if (transitions.size > 0) {
+    let json3 = {};
+    for (let [k, v] of transitions) {
+      json3[k] = [...v];
+    }
+    try {
+      _window.sessionStorage.setItem(TRANSITIONS_STORAGE_KEY, JSON.stringify(json3));
+    } catch (error) {
+      warning(false, "Failed to save applied view transitions in sessionStorage (" + error + ").");
+    }
+  }
+}
+var Action, PopStateEventType, ResultType, immutableRouteKeys, paramRe, dynamicSegmentValue, indexRouteValue, emptySegmentValue, staticSegmentValue, splatPenalty, isSplat, joinPaths, normalizePathname, normalizeSearch, normalizeHash, json, AbortedDeferredError, DeferredData, defer, redirect, redirectDocument, ErrorResponseImpl, validMutationMethodsArr, validMutationMethods, validRequestMethodsArr, validRequestMethods, redirectStatusCodes, redirectPreserveMethodStatusCodes, IDLE_NAVIGATION, IDLE_FETCHER, IDLE_BLOCKER, ABSOLUTE_URL_REGEX, defaultMapRouteProperties, TRANSITIONS_STORAGE_KEY, UNSAFE_DEFERRED_SYMBOL;
 var init_router = __esm({
   "node_modules/@remix-run/router/dist/router.js"() {
     (function(Action2) {
@@ -3348,6 +3422,7 @@ var init_router = __esm({
     defaultMapRouteProperties = (route) => ({
       hasErrorBoundary: Boolean(route.hasErrorBoundary)
     });
+    TRANSITIONS_STORAGE_KEY = "remix-router-transitions";
     UNSAFE_DEFERRED_SYMBOL = Symbol("deferred");
   }
 });
@@ -3919,7 +3994,11 @@ function RouterProvider(_ref) {
     v7_startTransition
   } = future || {};
   let setState = React.useCallback((newState) => {
-    v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
+    if (v7_startTransition && startTransitionImpl) {
+      startTransitionImpl(() => setStateImpl(newState));
+    } else {
+      setStateImpl(newState);
+    }
   }, [setStateImpl, v7_startTransition]);
   React.useLayoutEffect(() => router2.subscribe(setState), [router2, setState]);
   let navigator = React.useMemo(() => {
@@ -4413,7 +4492,7 @@ __export(dist_exports2, {
   Outlet: () => Outlet,
   Route: () => Route,
   Router: () => Router,
-  RouterProvider: () => RouterProvider,
+  RouterProvider: () => RouterProvider2,
   Routes: () => Routes,
   ScrollRestoration: () => ScrollRestoration,
   UNSAFE_DataRouterContext: () => DataRouterContext,
@@ -4421,6 +4500,7 @@ __export(dist_exports2, {
   UNSAFE_LocationContext: () => LocationContext,
   UNSAFE_NavigationContext: () => NavigationContext,
   UNSAFE_RouteContext: () => RouteContext,
+  UNSAFE_ViewTransitionContext: () => ViewTransitionContext,
   UNSAFE_useRouteId: () => useRouteId,
   UNSAFE_useScrollRestoration: () => useScrollRestoration,
   createBrowserRouter: () => createBrowserRouter,
@@ -4444,6 +4524,7 @@ __export(dist_exports2, {
   unstable_HistoryRouter: () => HistoryRouter,
   unstable_useBlocker: () => useBlocker,
   unstable_usePrompt: () => usePrompt,
+  unstable_useViewTransitionState: () => useViewTransitionState,
   useActionData: () => useActionData,
   useAsyncError: () => useAsyncError,
   useAsyncValue: () => useAsyncValue,
@@ -4631,7 +4712,8 @@ function createBrowserRouter(routes, opts) {
     }),
     hydrationData: (opts == null ? void 0 : opts.hydrationData) || parseHydrationData(),
     routes,
-    mapRouteProperties
+    mapRouteProperties,
+    window: opts == null ? void 0 : opts.window
   }).initialize();
 }
 function createHashRouter(routes, opts) {
@@ -4645,7 +4727,8 @@ function createHashRouter(routes, opts) {
     }),
     hydrationData: (opts == null ? void 0 : opts.hydrationData) || parseHydrationData(),
     routes,
-    mapRouteProperties
+    mapRouteProperties,
+    window: opts == null ? void 0 : opts.window
   }).initialize();
 }
 function parseHydrationData() {
@@ -4689,13 +4772,154 @@ function deserializeErrors(errors) {
   }
   return serialized;
 }
-function BrowserRouter(_ref) {
+function startTransitionSafe(cb) {
+  if (startTransitionImpl2) {
+    startTransitionImpl2(cb);
+  } else {
+    cb();
+  }
+}
+function RouterProvider2(_ref) {
+  let {
+    fallbackElement,
+    router: router2,
+    future
+  } = _ref;
+  let [state, setStateImpl] = React2.useState(router2.state);
+  let [pendingState, setPendingState] = React2.useState();
+  let [vtContext, setVtContext] = React2.useState({
+    isTransitioning: false
+  });
+  let [renderDfd, setRenderDfd] = React2.useState();
+  let [transition, setTransition] = React2.useState();
+  let [interruption, setInterruption] = React2.useState();
+  let {
+    v7_startTransition
+  } = future || {};
+  let optInStartTransition = React2.useCallback((cb) => {
+    if (v7_startTransition) {
+      startTransitionSafe(cb);
+    } else {
+      cb();
+    }
+  }, [v7_startTransition]);
+  let setState = React2.useCallback((newState, _ref2) => {
+    let {
+      unstable_viewTransitionOpts: viewTransitionOpts
+    } = _ref2;
+    if (!viewTransitionOpts || router2.window == null || typeof router2.window.document.startViewTransition !== "function") {
+      optInStartTransition(() => setStateImpl(newState));
+    } else if (transition && renderDfd) {
+      renderDfd.resolve();
+      transition.skipTransition();
+      setInterruption({
+        state: newState,
+        currentLocation: viewTransitionOpts.currentLocation,
+        nextLocation: viewTransitionOpts.nextLocation
+      });
+    } else {
+      setPendingState(newState);
+      setVtContext({
+        isTransitioning: true,
+        currentLocation: viewTransitionOpts.currentLocation,
+        nextLocation: viewTransitionOpts.nextLocation
+      });
+    }
+  }, [optInStartTransition, transition, renderDfd, router2.window]);
+  React2.useLayoutEffect(() => router2.subscribe(setState), [router2, setState]);
+  React2.useEffect(() => {
+    if (vtContext.isTransitioning) {
+      setRenderDfd(new Deferred());
+    }
+  }, [vtContext.isTransitioning]);
+  React2.useEffect(() => {
+    if (renderDfd && pendingState && router2.window) {
+      let newState = pendingState;
+      let renderPromise = renderDfd.promise;
+      let transition2 = router2.window.document.startViewTransition(async () => {
+        optInStartTransition(() => setStateImpl(newState));
+        await renderPromise;
+      });
+      transition2.finished.finally(() => {
+        setRenderDfd(void 0);
+        setTransition(void 0);
+        setPendingState(void 0);
+        setVtContext({
+          isTransitioning: false
+        });
+      });
+      setTransition(transition2);
+    }
+  }, [optInStartTransition, pendingState, renderDfd, router2.window]);
+  React2.useEffect(() => {
+    if (renderDfd && pendingState && state.location.key === pendingState.location.key) {
+      renderDfd.resolve();
+    }
+  }, [renderDfd, transition, state.location, pendingState]);
+  React2.useEffect(() => {
+    if (!vtContext.isTransitioning && interruption) {
+      setPendingState(interruption.state);
+      setVtContext({
+        isTransitioning: true,
+        currentLocation: interruption.currentLocation,
+        nextLocation: interruption.nextLocation
+      });
+      setInterruption(void 0);
+    }
+  }, [vtContext.isTransitioning, interruption]);
+  let navigator = React2.useMemo(() => {
+    return {
+      createHref: router2.createHref,
+      encodeLocation: router2.encodeLocation,
+      go: (n) => router2.navigate(n),
+      push: (to, state2, opts) => router2.navigate(to, {
+        state: state2,
+        preventScrollReset: opts == null ? void 0 : opts.preventScrollReset
+      }),
+      replace: (to, state2, opts) => router2.navigate(to, {
+        replace: true,
+        state: state2,
+        preventScrollReset: opts == null ? void 0 : opts.preventScrollReset
+      })
+    };
+  }, [router2]);
+  let basename = router2.basename || "/";
+  let dataRouterContext = React2.useMemo(() => ({
+    router: router2,
+    navigator,
+    static: false,
+    basename
+  }), [router2, navigator, basename]);
+  return /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement(DataRouterContext.Provider, {
+    value: dataRouterContext
+  }, /* @__PURE__ */ React2.createElement(DataRouterStateContext.Provider, {
+    value: state
+  }, /* @__PURE__ */ React2.createElement(ViewTransitionContext.Provider, {
+    value: vtContext
+  }, /* @__PURE__ */ React2.createElement(Router, {
+    basename,
+    location: state.location,
+    navigationType: state.historyAction,
+    navigator
+  }, state.initialized ? /* @__PURE__ */ React2.createElement(DataRoutes2, {
+    routes: router2.routes,
+    state
+  }) : fallbackElement)))), null);
+}
+function DataRoutes2(_ref3) {
+  let {
+    routes,
+    state
+  } = _ref3;
+  return useRoutesImpl(routes, void 0, state);
+}
+function BrowserRouter(_ref4) {
   let {
     basename,
     children,
     future,
     window: window2
-  } = _ref;
+  } = _ref4;
   let historyRef = React2.useRef();
   if (historyRef.current == null) {
     historyRef.current = createBrowserHistory({
@@ -4723,13 +4947,13 @@ function BrowserRouter(_ref) {
     navigator: history
   });
 }
-function HashRouter(_ref2) {
+function HashRouter(_ref5) {
   let {
     basename,
     children,
     future,
     window: window2
-  } = _ref2;
+  } = _ref5;
   let historyRef = React2.useRef();
   if (historyRef.current == null) {
     historyRef.current = createHashHistory({
@@ -4757,13 +4981,13 @@ function HashRouter(_ref2) {
     navigator: history
   });
 }
-function HistoryRouter(_ref3) {
+function HistoryRouter(_ref6) {
   let {
     basename,
     children,
     future,
     history
-  } = _ref3;
+  } = _ref6;
   let [state, setStateImpl] = React2.useState({
     action: history.action,
     location: history.location
@@ -4783,11 +5007,11 @@ function HistoryRouter(_ref3) {
     navigator: history
   });
 }
-function ScrollRestoration(_ref7) {
+function ScrollRestoration(_ref10) {
   let {
     getKey,
     storageKey
-  } = _ref7;
+  } = _ref10;
   useScrollRestoration({
     getKey,
     storageKey
@@ -4813,7 +5037,8 @@ function useLinkClickHandler(to, _temp) {
     replace: replaceProp,
     state,
     preventScrollReset,
-    relative
+    relative,
+    unstable_viewTransition
   } = _temp === void 0 ? {} : _temp;
   let navigate = useNavigate();
   let location = useLocation();
@@ -4828,10 +5053,11 @@ function useLinkClickHandler(to, _temp) {
         replace,
         state,
         preventScrollReset,
-        relative
+        relative,
+        unstable_viewTransition
       });
     }
-  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative]);
+  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative, unstable_viewTransition]);
 }
 function useSearchParams(defaultInit) {
   true ? warning(typeof URLSearchParams !== "undefined", "You cannot use the `useSearchParams` hook in a browser that does not support the URLSearchParams API. If you need to support Internet Explorer 11, we recommend you load a polyfill such as https://github.com/ungap/url-search-params\n\nIf you're unsure how to load polyfills, we recommend you check out https://polyfill.io/v3/ which provides some recommendations about how to load polyfills only for users that need them, instead of for every user.") : void 0;
@@ -4885,7 +5111,8 @@ function useSubmit() {
       formEncType: options.encType || encType,
       replace: options.replace,
       state: options.state,
-      fromRouteId: currentRouteId
+      fromRouteId: currentRouteId,
+      unstable_viewTransition: options.unstable_viewTransition
     });
   }, [router2, basename, currentRouteId]);
 }
@@ -5031,7 +5258,11 @@ function useScrollRestoration(_temp3) {
       let key = (getKey ? getKey(location, matches) : null) || location.key;
       savedScrollPositions[key] = window.scrollY;
     }
-    sessionStorage.setItem(storageKey || SCROLL_RESTORATION_STORAGE_KEY, JSON.stringify(savedScrollPositions));
+    try {
+      sessionStorage.setItem(storageKey || SCROLL_RESTORATION_STORAGE_KEY, JSON.stringify(savedScrollPositions));
+    } catch (error) {
+      true ? warning(false, "Failed to save scroll positions in sessionStorage, <ScrollRestoration /> will not work properly (" + error + ").") : void 0;
+    }
     window.history.scrollRestoration = "auto";
   }, [storageKey, getKey, navigation.state, location, matches]));
   if (typeof document !== "undefined") {
@@ -5105,11 +5336,11 @@ function usePageHide(callback, options) {
     };
   }, [callback, capture]);
 }
-function usePrompt(_ref8) {
+function usePrompt(_ref11) {
   let {
     when,
     message
-  } = _ref8;
+  } = _ref11;
   let blocker = useBlocker(when);
   React2.useEffect(() => {
     if (blocker.state === "blocked") {
@@ -5127,7 +5358,26 @@ function usePrompt(_ref8) {
     }
   }, [blocker, when]);
 }
-var React2, defaultMethod, defaultEncType, _formDataSupportsSubmitter, supportedFormEncTypes, _excluded, _excluded2, _excluded3, START_TRANSITION2, startTransitionImpl2, isBrowser, ABSOLUTE_URL_REGEX2, Link, NavLink, Form, FormImpl, DataRouterHook2, DataRouterStateHook2, fetcherId, SCROLL_RESTORATION_STORAGE_KEY, savedScrollPositions;
+function useViewTransitionState(to, opts) {
+  if (opts === void 0) {
+    opts = {};
+  }
+  let vtContext = React2.useContext(ViewTransitionContext);
+  !(vtContext != null) ? true ? invariant(false, "`unstable_useViewTransitionState` must be used within `react-router-dom`'s `RouterProvider`.  Did you accidentally import `RouterProvider` from `react-router`?") : invariant(false) : void 0;
+  let {
+    basename
+  } = useDataRouterContext2(DataRouterHook2.useViewTransitionState);
+  let path = useResolvedPath(to, {
+    relative: opts.relative
+  });
+  if (!vtContext.isTransitioning) {
+    return false;
+  }
+  let currentPath = stripBasename(vtContext.currentLocation.pathname, basename) || vtContext.currentLocation.pathname;
+  let nextPath = stripBasename(vtContext.nextLocation.pathname, basename) || vtContext.nextLocation.pathname;
+  return matchPath(path.pathname, nextPath) != null || matchPath(path.pathname, currentPath) != null;
+}
+var React2, defaultMethod, defaultEncType, _formDataSupportsSubmitter, supportedFormEncTypes, _excluded, _excluded2, _excluded3, ViewTransitionContext, START_TRANSITION2, startTransitionImpl2, Deferred, isBrowser, ABSOLUTE_URL_REGEX2, Link, NavLink, Form, FormImpl, DataRouterHook2, DataRouterStateHook2, fetcherId, SCROLL_RESTORATION_STORAGE_KEY, savedScrollPositions;
 var init_dist2 = __esm({
   "node_modules/react-router-dom/dist/index.js"() {
     React2 = __toESM(require_react());
@@ -5138,17 +5388,42 @@ var init_dist2 = __esm({
     defaultEncType = "application/x-www-form-urlencoded";
     _formDataSupportsSubmitter = null;
     supportedFormEncTypes = /* @__PURE__ */ new Set(["application/x-www-form-urlencoded", "multipart/form-data", "text/plain"]);
-    _excluded = ["onClick", "relative", "reloadDocument", "replace", "state", "target", "to", "preventScrollReset"];
-    _excluded2 = ["aria-current", "caseSensitive", "className", "end", "style", "to", "children"];
-    _excluded3 = ["reloadDocument", "replace", "state", "method", "action", "onSubmit", "submit", "relative", "preventScrollReset"];
+    _excluded = ["onClick", "relative", "reloadDocument", "replace", "state", "target", "to", "preventScrollReset", "unstable_viewTransition"];
+    _excluded2 = ["aria-current", "caseSensitive", "className", "end", "style", "to", "unstable_viewTransition", "children"];
+    _excluded3 = ["reloadDocument", "replace", "state", "method", "action", "onSubmit", "submit", "relative", "preventScrollReset", "unstable_viewTransition"];
+    ViewTransitionContext = /* @__PURE__ */ React2.createContext({
+      isTransitioning: false
+    });
+    if (true) {
+      ViewTransitionContext.displayName = "ViewTransition";
+    }
     START_TRANSITION2 = "startTransition";
     startTransitionImpl2 = React2[START_TRANSITION2];
+    Deferred = class {
+      constructor() {
+        this.status = "pending";
+        this.promise = new Promise((resolve, reject) => {
+          this.resolve = (value) => {
+            if (this.status === "pending") {
+              this.status = "resolved";
+              resolve(value);
+            }
+          };
+          this.reject = (reason) => {
+            if (this.status === "pending") {
+              this.status = "rejected";
+              reject(reason);
+            }
+          };
+        });
+      }
+    };
     if (true) {
       HistoryRouter.displayName = "unstable_HistoryRouter";
     }
     isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined";
     ABSOLUTE_URL_REGEX2 = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-    Link = /* @__PURE__ */ React2.forwardRef(function LinkWithRef(_ref4, ref) {
+    Link = /* @__PURE__ */ React2.forwardRef(function LinkWithRef(_ref7, ref) {
       let {
         onClick,
         relative,
@@ -5157,8 +5432,9 @@ var init_dist2 = __esm({
         state,
         target,
         to,
-        preventScrollReset
-      } = _ref4, rest = _objectWithoutPropertiesLoose(_ref4, _excluded);
+        preventScrollReset,
+        unstable_viewTransition
+      } = _ref7, rest = _objectWithoutPropertiesLoose(_ref7, _excluded);
       let {
         basename
       } = React2.useContext(NavigationContext);
@@ -5189,7 +5465,8 @@ var init_dist2 = __esm({
         state,
         target,
         preventScrollReset,
-        relative
+        relative,
+        unstable_viewTransition
       });
       function handleClick(event) {
         if (onClick)
@@ -5211,7 +5488,7 @@ var init_dist2 = __esm({
     if (true) {
       Link.displayName = "Link";
     }
-    NavLink = /* @__PURE__ */ React2.forwardRef(function NavLinkWithRef(_ref5, ref) {
+    NavLink = /* @__PURE__ */ React2.forwardRef(function NavLinkWithRef(_ref8, ref) {
       let {
         "aria-current": ariaCurrentProp = "page",
         caseSensitive = false,
@@ -5219,8 +5496,9 @@ var init_dist2 = __esm({
         end = false,
         style: styleProp,
         to,
+        unstable_viewTransition,
         children
-      } = _ref5, rest = _objectWithoutPropertiesLoose(_ref5, _excluded2);
+      } = _ref8, rest = _objectWithoutPropertiesLoose(_ref8, _excluded2);
       let path = useResolvedPath(to, {
         relative: rest.relative
       });
@@ -5229,6 +5507,9 @@ var init_dist2 = __esm({
       let {
         navigator
       } = React2.useContext(NavigationContext);
+      let isTransitioning = routerState != null && // Conditional usage is OK here because the usage of a data router is static
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      useViewTransitionState(path) && unstable_viewTransition === true;
       let toPathname = navigator.encodeLocation ? navigator.encodeLocation(path).pathname : path.pathname;
       let locationPathname = location.pathname;
       let nextLocationPathname = routerState && routerState.navigation && routerState.navigation.location ? routerState.navigation.location.pathname : null;
@@ -5239,30 +5520,27 @@ var init_dist2 = __esm({
       }
       let isActive = locationPathname === toPathname || !end && locationPathname.startsWith(toPathname) && locationPathname.charAt(toPathname.length) === "/";
       let isPending = nextLocationPathname != null && (nextLocationPathname === toPathname || !end && nextLocationPathname.startsWith(toPathname) && nextLocationPathname.charAt(toPathname.length) === "/");
+      let renderProps = {
+        isActive,
+        isPending,
+        isTransitioning
+      };
       let ariaCurrent = isActive ? ariaCurrentProp : void 0;
       let className;
       if (typeof classNameProp === "function") {
-        className = classNameProp({
-          isActive,
-          isPending
-        });
+        className = classNameProp(renderProps);
       } else {
-        className = [classNameProp, isActive ? "active" : null, isPending ? "pending" : null].filter(Boolean).join(" ");
+        className = [classNameProp, isActive ? "active" : null, isPending ? "pending" : null, isTransitioning ? "transitioning" : null].filter(Boolean).join(" ");
       }
-      let style = typeof styleProp === "function" ? styleProp({
-        isActive,
-        isPending
-      }) : styleProp;
+      let style = typeof styleProp === "function" ? styleProp(renderProps) : styleProp;
       return /* @__PURE__ */ React2.createElement(Link, _extends3({}, rest, {
         "aria-current": ariaCurrent,
         className,
         ref,
         style,
-        to
-      }), typeof children === "function" ? children({
-        isActive,
-        isPending
-      }) : children);
+        to,
+        unstable_viewTransition
+      }), typeof children === "function" ? children(renderProps) : children);
     });
     if (true) {
       NavLink.displayName = "NavLink";
@@ -5277,7 +5555,7 @@ var init_dist2 = __esm({
     if (true) {
       Form.displayName = "Form";
     }
-    FormImpl = /* @__PURE__ */ React2.forwardRef((_ref6, forwardedRef) => {
+    FormImpl = /* @__PURE__ */ React2.forwardRef((_ref9, forwardedRef) => {
       let {
         reloadDocument,
         replace,
@@ -5287,8 +5565,9 @@ var init_dist2 = __esm({
         onSubmit,
         submit,
         relative,
-        preventScrollReset
-      } = _ref6, props = _objectWithoutPropertiesLoose(_ref6, _excluded3);
+        preventScrollReset,
+        unstable_viewTransition
+      } = _ref9, props = _objectWithoutPropertiesLoose(_ref9, _excluded3);
       let formMethod = method.toLowerCase() === "get" ? "get" : "post";
       let formAction = useFormAction(action, {
         relative
@@ -5305,7 +5584,8 @@ var init_dist2 = __esm({
           replace,
           state,
           relative,
-          preventScrollReset
+          preventScrollReset,
+          unstable_viewTransition
         });
       };
       return /* @__PURE__ */ React2.createElement("form", _extends3({
@@ -5326,6 +5606,7 @@ var init_dist2 = __esm({
       DataRouterHook3["UseSubmit"] = "useSubmit";
       DataRouterHook3["UseSubmitFetcher"] = "useSubmitFetcher";
       DataRouterHook3["UseFetcher"] = "useFetcher";
+      DataRouterHook3["useViewTransitionState"] = "useViewTransitionState";
     })(DataRouterHook2 || (DataRouterHook2 = {}));
     (function(DataRouterStateHook3) {
       DataRouterStateHook3["UseFetchers"] = "useFetchers";
@@ -5424,16 +5705,20 @@ var require_server = __commonJS({
         value: dataRouterContext
       }, /* @__PURE__ */ React__namespace.createElement(reactRouterDom.UNSAFE_DataRouterStateContext.Provider, {
         value: state
+      }, /* @__PURE__ */ React__namespace.createElement(reactRouterDom.UNSAFE_ViewTransitionContext.Provider, {
+        value: {
+          isTransitioning: false
+        }
       }, /* @__PURE__ */ React__namespace.createElement(reactRouterDom.Router, {
         basename: dataRouterContext.basename,
         location: state.location,
         navigationType: state.historyAction,
         navigator: dataRouterContext.navigator,
         static: dataRouterContext.static
-      }, /* @__PURE__ */ React__namespace.createElement(DataRoutes2, {
+      }, /* @__PURE__ */ React__namespace.createElement(DataRoutes3, {
         routes: router$1.routes,
         state
-      })))), hydrateScript ? /* @__PURE__ */ React__namespace.createElement("script", {
+      }))))), hydrateScript ? /* @__PURE__ */ React__namespace.createElement("script", {
         suppressHydrationWarning: true,
         nonce,
         dangerouslySetInnerHTML: {
@@ -5441,7 +5726,7 @@ var require_server = __commonJS({
         }
       }) : null);
     }
-    function DataRoutes2({
+    function DataRoutes3({
       routes,
       state
     }) {
@@ -5535,6 +5820,9 @@ var require_server = __commonJS({
         },
         get routes() {
           return dataRoutes;
+        },
+        get window() {
+          return void 0;
         },
         initialize() {
           throw msg("initialize");
@@ -6156,16 +6444,18 @@ function Meta() {
       return null;
     }
     if ("tagName" in metaProps) {
-      let tagName = metaProps.tagName;
-      delete metaProps.tagName;
+      let {
+        tagName,
+        ...rest
+      } = metaProps;
       if (!isValidMetaTag(tagName)) {
         console.warn(`A meta object uses an invalid tagName: ${tagName}. Expected either 'link' or 'meta'`);
         return null;
       }
       let Comp = tagName;
       return /* @__PURE__ */ React3.createElement(Comp, _extends4({
-        key: JSON.stringify(metaProps)
-      }, metaProps));
+        key: JSON.stringify(rest)
+      }, rest));
     }
     if ("title" in metaProps) {
       return /* @__PURE__ */ React3.createElement("title", {
@@ -6408,6 +6698,9 @@ function ErrorDeferredHydrationScript({
 }
 function dedupe(array) {
   return [...new Set(array)];
+}
+function useMatches2() {
+  return useMatches();
 }
 function useLoaderData2() {
   return useLoaderData();
@@ -6921,22 +7214,32 @@ function createClientRoutes(manifest, routeModulesCache, future, parentId = "", 
       id: route.id,
       index: route.index,
       path: route.path,
-      loader({
+      async loader({
         request
       }) {
-        if (!route.hasLoader)
-          return null;
-        return fetchServerHandler(request, route);
-      },
-      action({
-        request
-      }) {
-        if (!route.hasAction) {
-          let msg = `Route "${route.id}" does not have an action, but you are trying to submit to it. To fix this, please add an \`action\` function to the route`;
-          console.error(msg);
-          return Promise.reject(new ErrorResponseImpl(405, "Method Not Allowed", new Error(msg), true));
+        let routeModulePromise = routeModulesCache[route.id] ? prefetchStyleLinks(routeModulesCache[route.id]) : Promise.resolve();
+        try {
+          if (!route.hasLoader)
+            return null;
+          return fetchServerHandler(request, route);
+        } finally {
+          await routeModulePromise;
         }
-        return fetchServerHandler(request, route);
+      },
+      async action({
+        request
+      }) {
+        let routeModulePromise = routeModulesCache[route.id] ? prefetchStyleLinks(routeModulesCache[route.id]) : Promise.resolve();
+        try {
+          if (!route.hasAction) {
+            let msg = `Route "${route.id}" does not have an action, but you are trying to submit to it. To fix this, please add an \`action\` function to the route`;
+            console.error(msg);
+            return Promise.reject(new ErrorResponseImpl(405, "Method Not Allowed", new Error(msg), true));
+          }
+          return fetchServerHandler(request, route);
+        } finally {
+          await routeModulePromise;
+        }
       },
       ...routeModule ? (
         // Use critical path modules directly
@@ -7147,7 +7450,7 @@ function RemixBrowser(_props) {
     }
   }, /* @__PURE__ */ React6.createElement(RemixErrorBoundary, {
     location
-  }, /* @__PURE__ */ React6.createElement(RouterProvider, {
+  }, /* @__PURE__ */ React6.createElement(RouterProvider2, {
     router,
     fallbackElement: null,
     future: {
@@ -7271,7 +7574,6 @@ export {
   useResolvedPath,
   useNavigation,
   useRevalidator,
-  useMatches,
   useRouteError,
   useAsyncValue,
   useAsyncError,
@@ -7284,6 +7586,7 @@ export {
   useFetchers,
   useBeforeUnload,
   usePrompt,
+  useViewTransitionState,
   RemixContext,
   NavLink2 as NavLink,
   Link2 as Link,
@@ -7292,6 +7595,7 @@ export {
   Meta,
   Await2 as Await,
   Scripts,
+  useMatches2 as useMatches,
   useLoaderData2 as useLoaderData,
   useRouteLoaderData2 as useRouteLoaderData,
   useActionData2 as useActionData,
@@ -7305,7 +7609,7 @@ export {
 
 @remix-run/router/dist/router.js:
   (**
-   * @remix-run/router v1.9.0
+   * @remix-run/router v1.10.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7317,7 +7621,7 @@ export {
 
 react-router/dist/index.js:
   (**
-   * React Router v6.16.0
+   * React Router v6.17.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7329,7 +7633,7 @@ react-router/dist/index.js:
 
 react-router-dom/dist/index.js:
   (**
-   * React Router DOM v6.16.0
+   * React Router DOM v6.17.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7341,7 +7645,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/_virtual/_rollupPluginBabelHelpers.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7353,7 +7657,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/invariant.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7365,7 +7669,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/routeModules.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7377,7 +7681,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/links.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7389,7 +7693,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/markup.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7401,7 +7705,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/components.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7413,7 +7717,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/errorBoundaries.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7425,7 +7729,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/errors.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7437,7 +7741,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/data.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7449,7 +7753,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/routes.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7461,7 +7765,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/browser.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7473,7 +7777,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/scroll-restoration.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7485,7 +7789,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/server.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7497,7 +7801,7 @@ react-router-dom/dist/index.js:
 
 @remix-run/react/dist/esm/index.js:
   (**
-   * @remix-run/react v2.0.1
+   * @remix-run/react v2.1.0
    *
    * Copyright (c) Remix Software Inc.
    *
@@ -7507,4 +7811,4 @@ react-router-dom/dist/index.js:
    * @license MIT
    *)
 */
-//# sourceMappingURL=/build/_shared/chunk-YWPSE7IM.js.map
+//# sourceMappingURL=/build/_shared/chunk-GMPTIKS3.js.map

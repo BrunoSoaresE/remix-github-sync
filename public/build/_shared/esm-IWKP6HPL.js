@@ -45,11 +45,12 @@ import {
   useRouteError,
   useRouteLoaderData,
   useSearchParams,
-  useSubmit
-} from "/build/_shared/chunk-YWPSE7IM.js";
+  useSubmit,
+  useViewTransitionState
+} from "/build/_shared/chunk-GMPTIKS3.js";
+import "/build/_shared/chunk-BOXFZXVX.js";
 import "/build/_shared/chunk-PI7EICAX.js";
 import "/build/_shared/chunk-UWV35TSL.js";
-import "/build/_shared/chunk-BOXFZXVX.js";
 import "/build/_shared/chunk-PNG5AS42.js";
 export {
   Await,
@@ -75,6 +76,7 @@ export {
   resolvePath,
   useBlocker as unstable_useBlocker,
   usePrompt as unstable_usePrompt,
+  useViewTransitionState as unstable_useViewTransitionState,
   useActionData,
   useAsyncError,
   useAsyncValue,
@@ -100,4 +102,4 @@ export {
   useSearchParams,
   useSubmit
 };
-//# sourceMappingURL=/build/_shared/esm-DKKRJGUN.js.map
+//# sourceMappingURL=/build/_shared/esm-IWKP6HPL.js.map
