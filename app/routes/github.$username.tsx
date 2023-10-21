@@ -11,13 +11,13 @@ export const loader: LoaderFunction = async ({ params }) => {
     };
   };
 
-// export function ErrorBoundary() {
-//     return <h3>Whoops. Something went wrong [Repositories]</h3>;
-//   }
+export function ErrorBoundary() {
+    return <h3>Whoops. Something went wrong [Repositories]</h3>;
+  }
   
-// export default function () {
-//     const { user, repos } = useLoaderData<Repositories.LoaderData>(); 
+export default function () {
+    const { user, repos } = useLoaderData<Repositories.LoaderData>(); 
 
-//      return <ListRepositories user={user} repos={repos} />;
-//   }
+     return <ListRepositories user={user} repos={repos} />;
+  }
   
