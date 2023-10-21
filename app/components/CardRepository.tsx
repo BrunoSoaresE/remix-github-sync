@@ -45,8 +45,8 @@ export function CardRepository({ repo }: CardRepositoryProps) {
                 fill="currentcolor"
               />
             </svg>
-            <span className="text-sm text-gray-500 group-hover:text-gray-900 font-medium truncate">
-              {repo.full_name}
+            <span className="text-sm text-gray-500 group-hover:text-gray-900 font-medium ">
+              {repo.description}
             </span>
           </div>
         </div>

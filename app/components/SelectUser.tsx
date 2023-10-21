@@ -19,7 +19,7 @@ export default function SelectUser() {
   const params = useParams();
   const transition = useNavigation();
 
-  const loading = transition.state === "submitting";
+  const loading = transition.state === "loading";
 
   const [selected, setSelected] = useState<string>(
     params.username ?? users[0].username
@@ -50,7 +50,7 @@ export default function SelectUser() {
         type="submit"
         className="w-32 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
       >
-        {loading ? "Loading..." : "Load User"}
+        {loading ? "Carregando..." : "Pesquisar"}
       </button>
     </Form>
   );

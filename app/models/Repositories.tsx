@@ -9,6 +9,7 @@ export namespace Repositories {
     stargazers_count: string;
     html_url: string;
     language: string;
+    description: string;
   }
 
   export interface LoaderData {
