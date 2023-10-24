@@ -23,7 +23,10 @@ npm i @heroicons/react 1.0.6
 
 # 5 add headlessui  //
 npm i @headlessui/react
+or npm i heroicons
 
+# 5 add headlessui  //
+npm i concurrently
 
 
 
